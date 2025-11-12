@@ -252,3 +252,5 @@ scipy_tests/
 
 # Any custom virtual environments
 *env/
+
+HBenv/
