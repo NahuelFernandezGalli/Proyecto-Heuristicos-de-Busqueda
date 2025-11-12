@@ -205,3 +205,50 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Gymnasium
+gymnasium/logs/
+gymnasium/videos/
+gymnasium/recordings/
+gymnasium/__pycache__/
+
+# Matplotlib
+.matplotlib/
+plot*.png
+*.svg
+*.pdf
+*.eps
+*.jpg
+*.jpeg
+
+# NumPy and SciPy (compiled or cached data)
+*.npy
+*.npz
+*.mat
+*.dat
+*.hdf5
+*.h5
+
+# Pandas (cached or exported data)
+*.csv
+*.tsv
+*.parquet
+*.feather
+*.pkl
+*.pickle
+*.xls
+*.xlsx
+*.ods
+
+# Pip
+pip-wheel-metadata/
+pip-wheelhouse/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Scipy build artifacts
+scipy_build/
+scipy_tests/
+
+# Any custom virtual environments
+*env/
