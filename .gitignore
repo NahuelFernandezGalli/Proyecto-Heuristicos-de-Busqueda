@@ -254,3 +254,19 @@ scipy_tests/
 *env/
 
 HBenv/
+
+# Excluir base de datos NIPS
+database.sqlite
+Data_CDP/nips-papers/database.sqlite
+Data_CDP/nips-papers/
+
+# Ignorar todas las bases de datos SQLite
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+*.sdb
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
