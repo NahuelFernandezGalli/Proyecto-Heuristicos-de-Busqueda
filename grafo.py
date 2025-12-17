@@ -21,7 +21,7 @@ import numpy as np
 
 def crear_grafo():
     # Leer datos
-    connect = sqlite3.connect("./Data_CDP/nips-papers/database.sqlite")
+    connect = sqlite3.connect("./Data_CDP/database.sqlite")
     query = """
     SELECT pa.paper_id, pa.author_id, a.name
     FROM paper_authors AS pa JOIN papers AS p ON pa.paper_id = p.id

@@ -1,302 +1,191 @@
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
-import random
-
 import numpy as np
 
-
-# ============================================================
-# 1) Representación de la solución
-# ============================================================
-
-@dataclass
-class Solucion:
-    # asignacion[i] = id de comunidad del nodo i, o -1 si no asignado
-    asignacion: np.ndarray  # shape (n,), dtype=int
-    # número de comunidades actuales (ids válidos: 0 .. k-1)
-    k: int
+def _clave_par(a, b):
+    """Clave ordenada para dict de pares (a<b)."""
+    return (a, b) if a < b else (b, a)
 
 
-def crear_solucion_vacia(n: int) -> Solucion:
-    asignacion = np.full(n, -1, dtype=int)
-    return Solucion(asignacion=asignacion, k=0)
+def _delta_modularidad_merge(M, S_a, W_in_a, S_b, W_in_b, W_ab):
+    """
+    Delta de Q al fusionar comunidades a y b, usando:
+      Q_c = (W_in_c / M) - (S_c / (2M))^2
+    donde:
+      M = suma de pesos de aristas (cada arista una vez)
+      S_c = suma de strengths de nodos en comunidad c
+      W_in_c = suma de pesos de aristas internas (cada arista una vez)
+      W_ab = suma de pesos de aristas entre a y b (cada arista una vez)
+    """
+    if M <= 0:
+        return 0.0
+
+    # Q antes
+    qa = (W_in_a / M) - (S_a / (2.0 * M)) ** 2
+    qb = (W_in_b / M) - (S_b / (2.0 * M)) ** 2
+
+    # Q después (merge)
+    S_new = S_a + S_b
+    W_in_new = W_in_a + W_in_b + W_ab
+    qnew = (W_in_new / M) - (S_new / (2.0 * M)) ** 2
+
+    return qnew - (qa + qb)
 
 
-def solucion_completa(sol: Solucion) -> bool:
-    return np.all(sol.asignacion >= 0)
+def grasp_comunidades(
+    prep,
+    *,
+    alpha=0.3,
+    rcl_k=None,
+    max_merges=None,
+    semilla=None,
+    permitir_merges_peores=False,
+):
+    """
+    GRASP constructivo para CDP basado en fusiones (merges) de comunidades.
 
+    - Empieza con cada nodo en su propia comunidad.
+    - En cada paso evalúa posibles merges entre comunidades conectadas.
+    - Construye una RCL (Restricted Candidate List) usando:
+        * alpha (umbral por calidad) o
+        * rcl_k (top-k)
+    - Elige aleatoriamente un merge dentro de la RCL y lo aplica.
+    - Devuelve labels (n,) con el id de comunidad por nodo.
 
-# ============================================================
-# 2) Función objetivo (placeholder)
-# ============================================================
-# Objetivo temporal:
-#   maximizar el peso intra-comunidad total
-# Se implementa como minimización:
-#   f = - peso_intra
+    Parámetros:
+      alpha: float en [0,1]. Más pequeño => más greedy. Más grande => más aleatorio.
+      rcl_k: si no es None, usa top-k candidatos (ignora alpha).
+      max_merges: límite de fusiones.
+      semilla: para reproducibilidad.
+      permitir_merges_peores: si False, para cuando mejor ΔQ <= 0.
+    """
+    rng = np.random.default_rng(semilla)
 
-def funcion_objetivo_placeholder(sol: Solucion, prep: Dict) -> float:
-    pesos = prep["weights"]
     n = prep["n"]
-    a = sol.asignacion
+    s = prep["strength"]          # (n,)
+    neighbors = prep["neighbors"] # lista de listas
+    weights = prep["weights"]     # lista de dicts weights[i][j]=w
 
-    peso_intra = 0.0
+    # M = suma de pesos de aristas (cada arista una vez)
+    M = float(s.sum() / 2.0)
+    if M <= 0 or n == 0:
+        return np.zeros(n, dtype=int)
+
+    # Inicialización: cada nodo es su comundad
+    # Usamos ids de comunidad = 0..n-1
+    comm_de_nodo = np.arange(n, dtype=int)
+
+    # Estadísticos por comunidad (solo para comunidades activas)
+    activa = np.ones(n, dtype=bool)
+    S = s.astype(float).copy()               # S[c]
+    W_in = np.zeros(n, dtype=float)          # W_in[c] (singletons => 0)
+
+    # W_between[(a,b)] = suma de pesos entre comunidades a y b (a<b), solo si >0
+    W_between = {}
+
+    # Construimos W_between desde aristas (i<j)
     for i in range(n):
-        ci = a[i]
-        for j, w in pesos[i].items():
-            if j > i and a[j] == ci:
-                peso_intra += w
+        ci = comm_de_nodo[i]
+        for j in neighbors[i]:
+            if j <= i:
+                continue
+            cj = comm_de_nodo[j]
+            if ci == cj:
+                continue
+            key = _clave_par(ci, cj)
+            W_between[key] = W_between.get(key, 0.0) + float(weights[i][j])
 
-    return -peso_intra
+    # Helper para listar candidatos actuales
+    def listar_candidatos():
+        # Devuelve lista de (a, b, deltaQ, W_ab) para pares activos con W_ab>0
+        candidatos = []
+        for (a, b), wab in W_between.items():
+            if (not activa[a]) or (not activa[b]):
+                continue
+            dQ = _delta_modularidad_merge(M, S[a], W_in[a], S[b], W_in[b], wab)
+            candidatos.append((a, b, dQ, wab))
+        return candidatos
 
-
-def peso_intra_total(sol: Solucion, prep: Dict) -> float:
-    return -funcion_objetivo_placeholder(sol, prep)
-
-
-# ============================================================
-# 3) Construcción GRASP (greedy-randomized)
-# ============================================================
-
-@dataclass(frozen=True)
-class Movimiento:
-    nodo: int
-    comunidad_destino: int
-
-
-@dataclass
-class ConfiguracionGRASP:
-    max_iteraciones: int = 200
-    tam_rcl: int = 10
-    semilla: int = 0
-
-    # construcción
-    iniciar_en_nodo_fuerte: bool = True
-    permitir_nueva_comunidad: bool = True
-
-    # búsqueda local
-    usar_busqueda_local: bool = True
-    max_pasos_busqueda_local: int = 5000
-
-
-def elegir_nodo_semilla(prep: Dict, asignado: np.ndarray,
-                        rng: random.Random,
-                        *, nodo_fuerte: bool) -> int:
-    if nodo_fuerte:
-        fuerza = prep["strength"]
-        max_f = np.max(fuerza)
-        candidatos = np.where(fuerza == max_f)[0]
-        return int(rng.choice(list(candidatos)))
-
-    libres = np.where(~asignado)[0]
-    return int(rng.choice(list(libres)))
-
-
-def nodos_frontera(prep: Dict, asignado: np.ndarray) -> np.ndarray:
-    vecinos = prep["neighbors"]
-    n = prep["n"]
-
-    frontera = np.zeros(n, dtype=bool)
-    for u in np.where(asignado)[0]:
-        for v in vecinos[u]:
-            if not asignado[v]:
-                frontera[v] = True
-
-    nodos = np.where(frontera)[0]
-    if nodos.size == 0:
-        nodos = np.where(~asignado)[0]
-
-    return nodos
-
-
-def comunidades_candidatas(nodo: int, sol: Solucion, prep: Dict) -> List[int]:
-    vecinos = prep["neighbors"]
-    a = sol.asignacion
-
-    comms = set()
-    for j in vecinos[nodo]:
-        cj = a[j]
-        if cj >= 0:
-            comms.add(int(cj))
-
-    return sorted(comms)
-
-
-def puntuacion_construccion(nodo: int, comunidad: int,
-                            sol: Solucion, prep: Dict) -> float:
-    vecinos = prep["neighbors"]
-    pesos = prep["weights"]
-    a = sol.asignacion
-
-    score = 0.0
-    for j in vecinos[nodo]:
-        if a[j] == comunidad:
-            score += pesos[nodo].get(j, 0.0)
-
-    return score
-
-
-def aplicar_movimiento(sol: Solucion, mov: Movimiento) -> None:
-    sol.asignacion[mov.nodo] = mov.comunidad_destino
-
-
-def construir_solucion_greedy_aleatoria(
-    sol: Solucion,
-    prep: Dict,
-    cfg: ConfiguracionGRASP,
-    rng: random.Random,
-) -> Solucion:
-    n = prep["n"]
-    asignado = np.zeros(n, dtype=bool)
-
-    # ---- nodo semilla ----
-    semilla = elegir_nodo_semilla(
-        prep, asignado, rng,
-        nodo_fuerte=cfg.iniciar_en_nodo_fuerte
-    )
-    sol.k = 1
-    sol.asignacion[semilla] = 0
-    asignado[semilla] = True
-
-    # ---- construcción incremental ----
-    while not np.all(asignado):
-        frontera = nodos_frontera(prep, asignado)
-        i = int(rng.choice(list(frontera)))
-
-        comms = comunidades_candidatas(i, sol, prep)
-        candidatos: List[Tuple[float, Movimiento]] = []
-
-        if not comms:
-            if cfg.permitir_nueva_comunidad:
-                candidatos.append((0.0, Movimiento(i, sol.k)))
-            if sol.k > 0:
-                c = rng.randrange(sol.k)
-                candidatos.append((0.0, Movimiento(i, c)))
-        else:
-            for c in comms:
-                s = puntuacion_construccion(i, c, sol, prep)
-                candidatos.append((s, Movimiento(i, c)))
-
-            if cfg.permitir_nueva_comunidad:
-                candidatos.append((0.0, Movimiento(i, sol.k)))
-
-        candidatos.sort(key=lambda x: x[0], reverse=True)
-        k = max(1, min(cfg.tam_rcl, len(candidatos)))
-        rcl = candidatos[:k]
-
-        _, elegido = rng.choice(rcl)
-
-        if elegido.comunidad_destino == sol.k:
-            sol.k += 1
-
-        aplicar_movimiento(sol, elegido)
-        asignado[i] = True
-
-    return sol
-
-
-# ============================================================
-# 4) Búsqueda local (simple)
-# ============================================================
-
-def busqueda_local_mover_nodo(
-    sol: Solucion,
-    prep: Dict,
-    funcion_objetivo: Callable[[Solucion, Dict], float],
-    cfg: ConfiguracionGRASP,
-) -> Solucion:
-    rng = random.Random(cfg.semilla + 99991)
-    n = prep["n"]
-    vecinos = prep["neighbors"]
-
-    mejor = Solucion(sol.asignacion.copy(), sol.k)
-    mejor_valor = funcion_objetivo(mejor, prep)
-
-    pasos = 0
-    while pasos < cfg.max_pasos_busqueda_local:
-        mejora = False
-        orden = list(range(n))
-        rng.shuffle(orden)
-
-        for i in orden:
-            ci = int(mejor.asignacion[i])
-
-            comms = set(int(mejor.asignacion[j]) for j in vecinos[i])
-            comms.discard(ci)
-
-            for c2 in comms:
-                candidata = Solucion(mejor.asignacion.copy(), mejor.k)
-                candidata.asignacion[i] = c2
-                val = funcion_objetivo(candidata, prep)
-
-                if val < mejor_valor:
-                    mejor, mejor_valor = candidata, val
-                    mejora = True
-                    break
-
-            if mejora:
-                break
-
-        if not mejora:
+    merges_hechos = 0
+    while True:
+        if max_merges is not None and merges_hechos >= max_merges:
             break
 
-        pasos += 1
+        candidatos = listar_candidatos()
+        if not candidatos:
+            break
 
-    return mejor
+        # Ordenamos por deltaQ (mejor primero)
+        candidatos.sort(key=lambda x: x[2], reverse=True)
+        mejor_dQ = candidatos[0][2]
 
+        if (not permitir_merges_peores) and (mejor_dQ <= 0.0):
+            break
 
-# ============================================================
-# 5) GRASP principal
-# ============================================================
+        # Construcción RCL
+        if rcl_k is not None:
+            rcl = candidatos[: max(1, min(rcl_k, len(candidatos)))]
+        else:
+            # Umbral alpha basado en rango [mejor, peor]
+            peor_dQ = candidatos[-1][2]
+            # criterio típico GRASP: >= mejor - alpha*(mejor - peor)
+            umbral = mejor_dQ - alpha * (mejor_dQ - peor_dQ)
+            rcl = [c for c in candidatos if c[2] >= umbral]
+            if not rcl:
+                rcl = [candidatos[0]]
 
-def grasp(
-    prep: Dict,
-    cfg: ConfiguracionGRASP,
-    funcion_objetivo: Optional[Callable[[Solucion, Dict], float]] = None,
-) -> Tuple[Solucion, float]:
+        # Elegimos aleatoriamente dentro de la RCL (uniforme)
+        a, b, dQ, wab = rcl[rng.integers(0, len(rcl))]
 
-    if funcion_objetivo is None:
-        funcion_objetivo = funcion_objetivo_placeholder
+        # Aplicar merge: absorbemos b en a
+        # Para estabilidad, hacemos que "a" sea el id menor
+        if b < a:
+            a, b = b, a
 
-    rng = random.Random(cfg.semilla)
-    n = prep["n"]
+        # Actualizamos stats de a
+        W_in[a] = W_in[a] + W_in[b] + W_between.get(_clave_par(a, b), 0.0)
+        S[a] = S[a] + S[b]
 
-    mejor_sol: Optional[Solucion] = None
-    mejor_val: Optional[float] = None
+        # Marcar b como inactiva
+        activa[b] = False
 
-    for _ in range(cfg.max_iteraciones):
-        sol = crear_solucion_vacia(n)
-        sol = construir_solucion_greedy_aleatoria(sol, prep, cfg, rng)
+        # Reasignar nodos que estaban en b hacia a
+        comm_de_nodo[comm_de_nodo == b] = a
 
-        if cfg.usar_busqueda_local:
-            sol = busqueda_local_mover_nodo(sol, prep, funcion_objetivo, cfg)
+        # Actualizar W_between: combinar conexiones de b con otros en a
+        # Vamos a reconstruir entradas afectadas evitando iteraciones peligrosas sobre dict
+        claves_a_eliminar = []
+        actualizaciones = {}  # key -> nuevo_w
 
-        val = funcion_objetivo(sol, prep)
+        for (x, y), wxy in W_between.items():
+            if x == b or y == b:
+                # par que involucra b
+                otro = y if x == b else x
+                if not activa[otro] or otro == a:
+                    claves_a_eliminar.append((x, y))
+                    continue
 
-        if mejor_val is None or val < mejor_val:
-            mejor_sol, mejor_val = sol, val
+                # Nuevo peso entre a y "otro" = W(a,otro) + W(b,otro)
+                key_ao = _clave_par(a, otro)
+                w_ao = W_between.get(key_ao, 0.0)
+                actualizaciones[key_ao] = w_ao + wxy
 
-    return mejor_sol, mejor_val
+                claves_a_eliminar.append((x, y))
 
+        # Eliminar todas las entradas que tocaban b y también (a,b) si existía
+        for k in claves_a_eliminar:
+            W_between.pop(k, None)
+        W_between.pop(_clave_par(a, b), None)
 
-# ============================================================
-# 6) Ejemplo de uso
-# ============================================================
+        # Aplicar actualizaciones
+        for k, val in actualizaciones.items():
+            if val > 0 and activa[k[0]] and activa[k[1]]:
+                W_between[k] = val
 
-if __name__ == "__main__":
-    # Ajusta el import al nombre real de tu archivo de grafo
-    #
-    # from grafo_cdp import crear_grafo, preparar_grafo
-    #
-    # G = crear_grafo()
-    # prep = preparar_grafo(G)
-    #
-    # cfg = ConfiguracionGRASP(max_iteraciones=50, tam_rcl=10, semilla=0)
-    # sol, val = grasp(prep, cfg)
-    #
-    # print("Comunidades:", sol.k)
-    # print("Objetivo (placeholder):", val)
-    # print("Peso intra:", peso_intra_total(sol, prep))
-    #
-    raise SystemExit("Configura el import de crear_grafo / preparar_grafo y ejecuta.")
+        merges_hechos += 1
+
+    # Normalizar labels a 0..K-1
+    # Algunas comunidades quedaron con ids "huecos"
+    comm_ids = np.unique(comm_de_nodo)
+    remap = {old: new for new, old in enumerate(comm_ids)}
+    labels = np.array([remap[c] for c in comm_de_nodo], dtype=int)
+
+    return labels
