@@ -52,7 +52,7 @@ def preparar_grafo(G: nx.Graph, *, ordenar_nodos: bool = True):
       - n: número de nodos
       - m: suma de pesos total / 2  (m de modularidad ponderada)
       - strength: array (n,) con s_i = sum_j w_ij
-      - neighbors: lista de listas con índices de vecinos
+      - neighbors: lista de listas con índices de vecinos (Si en el grafo existe la arista (u,v) = v es vecino de u)
       - weights: lista de dicts; weights[i][j] = w_ij (solo si hay arista)
     """
     if ordenar_nodos:
