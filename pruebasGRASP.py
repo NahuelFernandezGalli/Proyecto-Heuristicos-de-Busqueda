@@ -1,8 +1,8 @@
 import numpy as np
 
-from grafo import crear_grafo, preparar_grafo
 from GRASPsolution import grasp_comunidades
 from funcionObjetivo import modularidad_ponderada
+from experimentos import cargar_y_preparar, resumen_Q_K
 
 
 def probar_grasp(
@@ -12,13 +12,7 @@ def probar_grasp(
     max_merges=None,
     permitir_merges_peores=False,
 ):
-    print("Cargando grafo")
-    G = crear_grafo()
-    prep = preparar_grafo(G)
-
-    print("Nodos:", prep["n"])
-    print("Aristas:", G.number_of_edges())
-    print()
+    _, prep = cargar_y_preparar()
 
     Qs = []
     Ks = []
@@ -41,12 +35,7 @@ def probar_grasp(
 
         print(f"GRASP seed = {seed:>3} | Q={Q:.6f} | K={K}")
 
-    Qs = np.array(Qs, dtype=float)
-    Ks = np.array(Ks, dtype=int)
-
-    print("\n=== RESUMEN ===")
-    print(f"Q: mejor = {Qs.max():.6f} | media={Qs.mean():.6f} | std={Qs.std():.6f} | peor={Qs.min():.6f}")
-    print(f"K: mejor(Q) = {Ks[Qs.argmax()]} | media={Ks.mean():.2f} | std={Ks.std():.2f} | min={Ks.min()} | max={Ks.max()}")
+    resumen_Q_K(Qs, Ks, titulo="\n=== RESUMEN ===")
 
 
 if __name__ == "__main__":

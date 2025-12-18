@@ -1,11 +1,13 @@
 import numpy as np
 
-def _clave_par(a, b):
+from utils import renumerar_labels
+
+def clave_par(a, b):
     """Clave ordenada para dict de pares (a<b)."""
     return (a, b) if a < b else (b, a)
 
 
-def _delta_modularidad_merge(M, S_a, W_in_a, S_b, W_in_b, W_ab):
+def delta_modularidad_merge(M, S_a, W_in_a, S_b, W_in_b, W_ab):
     """
     Delta de Q al fusionar comunidades a y b, usando:
       Q_c = (W_in_c / M) - (S_c / (2M))^2
@@ -90,7 +92,7 @@ def grasp_comunidades(
             cj = comm_de_nodo[j]
             if ci == cj:
                 continue
-            key = _clave_par(ci, cj)
+            key = clave_par(ci, cj)
             W_between[key] = W_between.get(key, 0.0) + float(weights[i][j])
 
     # Helper para listar candidatos actuales
@@ -100,7 +102,7 @@ def grasp_comunidades(
         for (a, b), wab in W_between.items():
             if (not activa[a]) or (not activa[b]):
                 continue
-            dQ = _delta_modularidad_merge(M, S[a], W_in[a], S[b], W_in[b], wab)
+            dQ = delta_modularidad_merge(M, S[a], W_in[a], S[b], W_in[b], wab)
             candidatos.append((a, b, dQ, wab))
         return candidatos
 
@@ -141,7 +143,7 @@ def grasp_comunidades(
             a, b = b, a
 
         # Actualizamos stats de a
-        W_in[a] = W_in[a] + W_in[b] + W_between.get(_clave_par(a, b), 0.0)
+        W_in[a] = W_in[a] + W_in[b] + W_between.get(clave_par(a, b), 0.0)
         S[a] = S[a] + S[b]
 
         # Marcar b como inactiva
@@ -164,7 +166,7 @@ def grasp_comunidades(
                     continue
 
                 # Nuevo peso entre a y "otro" = W(a,otro) + W(b,otro)
-                key_ao = _clave_par(a, otro)
+                key_ao = clave_par(a, otro)
                 w_ao = W_between.get(key_ao, 0.0)
                 actualizaciones[key_ao] = w_ao + wxy
 
@@ -173,7 +175,7 @@ def grasp_comunidades(
         # Eliminar todas las entradas que tocaban b y también (a,b) si existía
         for k in claves_a_eliminar:
             W_between.pop(k, None)
-        W_between.pop(_clave_par(a, b), None)
+        W_between.pop(clave_par(a, b), None)
 
         # Aplicar actualizaciones
         for k, val in actualizaciones.items():
@@ -183,9 +185,4 @@ def grasp_comunidades(
         merges_hechos += 1
 
     # Normalizar labels a 0..K-1
-    # Algunas comunidades quedaron con ids "huecos"
-    comm_ids = np.unique(comm_de_nodo)
-    remap = {old: new for new, old in enumerate(comm_ids)}
-    labels = np.array([remap[c] for c in comm_de_nodo], dtype=int)
-
-    return labels
+    return renumerar_labels(comm_de_nodo)
