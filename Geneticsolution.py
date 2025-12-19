@@ -5,9 +5,9 @@ from utils import renumerar_labels
 
 def inicial_aleatoria(prep, rng, p_nueva=0.02):
     """
-    Inicialización aleatoria 'sensata':
-    - Recorre nodos y los asigna a comunidad de un vecino con cierta probabilidad,
-      o crea una nueva comunidad con probabilidad pequeña.
+    Inicialización aleatoria:
+    - Asigna cada nodo a la comunidad de un vecino con cierta probabilidad
+      o crea una comunidad nueva con baja probabilidad.
     """
     n = prep["n"]
     neighbors = prep["neighbors"]
@@ -96,12 +96,8 @@ def cruce_bloque(prep, padre_a, padre_b, rng, frac=0.3):
 
 def mutacion_move_vecino_informada(prep, labels, rng, modularidad_ponderada, k_candidatos=10):
     """
-    Mutación informada (best-improving):
-    - elige un nodo i al azar
-    - considera comunidades de hasta k_candidatos vecinos (muestreados si hay muchos)
-    - evalúa el fitness y se queda con el mejor movimiento
-
-    Nota: es más costosa que la mutación ciega, pero nos mejora mucho Q.
+    Mutación informada (best-improving): prueba mover i a comunidades de vecinos.
+    Más costosa; evaluar modularidad varias veces.
     """
     n = prep["n"]
     neighbors = prep["neighbors"]
@@ -111,7 +107,6 @@ def mutacion_move_vecino_informada(prep, labels, rng, modularidad_ponderada, k_c
     if len(vecs) == 0:
         return labels
 
-    # comunidades candidatas: las comunidades de algunos vecinos
     if len(vecs) > k_candidatos:
         idxs = rng.choice(len(vecs), size=k_candidatos, replace=False)
         cand_vecs = [vecs[t] for t in idxs]
@@ -124,7 +119,6 @@ def mutacion_move_vecino_informada(prep, labels, rng, modularidad_ponderada, k_c
     mejor_labels = labels
     mejor_Q = base_Q
 
-    # probar mover i a la comunidad del vecino j
     for j in cand_vecs:
         c_new = labels[j]
         if c_new == labels[i]:
@@ -142,42 +136,52 @@ def mutacion_move_vecino_informada(prep, labels, rng, modularidad_ponderada, k_c
     return mejor_labels
 
 
+def mutacion_move_vecino_simple(prep, labels, rng):
+    """
+    Mutación barata: mueve un nodo al azar a la comunidad de un vecino aleatorio.
+    No evalúa fitness; útil para modos rápidos.
+    """
+    n = prep["n"]
+    neighbors = prep["neighbors"]
+
+    i = int(rng.integers(0, n))
+    vecs = neighbors[i]
+    if len(vecs) == 0:
+        return labels
+
+    j = int(rng.choice(vecs))
+    labels2 = np.array(labels, dtype=int, copy=True)
+    labels2[i] = labels2[j]
+    return renumerar_labels(labels2)
+
+
 def genetico_comunidades(
     prep,
     modularidad_ponderada,
     *,
-    tam_poblacion=60,
-    generaciones=80,
+    tam_poblacion=40,
+    generaciones=60,
     p_cruce=0.9,
-    p_mutacion=0.3,
+    p_mutacion=0.2,
     elitismo=2,
     torneo_k=2,
     frac_cruce=0.3,
-    p_inmigracion=0.03,
-    k_candidatos_mut=10,
+    p_inmigracion=0.02,
+    k_candidatos_mut=5,
     semilla=None,
+    usar_mutacion_informada=False,
 ):
     """
     Algoritmo genético para CDP (maximiza modularidad ponderada).
-
-    Mejoras incluidas:
-      (2) Mutación informada: prueba varios movimientos y elige el mejor
-      (3) Selección más suave (torneo_k=2) + elitismo controlado + inmigración
-
-    Salida:
-      - best_labels: labels del mejor individuo
-      - best_Q: fitness (modularidad) del mejor individuo
-      - historial: lista de (best_Q_generacion, avg_Q_generacion)
+    Parámetros ajustados por defecto para ejecuciones más rápidas.
     """
     rng = np.random.default_rng(semilla)
 
-    # Inicialización de población
     poblacion = [inicial_aleatoria(prep, rng) for _ in range(tam_poblacion)]
     fitness = np.array([modularidad_ponderada(prep, ind) for ind in poblacion], dtype=float)
 
     historial = []
     for gen in range(generaciones):
-        # Orden para elitismo
         orden = np.argsort(-fitness)
         poblacion = [poblacion[i] for i in orden]
         fitness = fitness[orden]
@@ -188,42 +192,41 @@ def genetico_comunidades(
 
         nueva = []
 
-        # Elitismo
         for e in range(min(elitismo, tam_poblacion)):
             nueva.append(np.array(poblacion[e], copy=True))
 
-        # Inmigración: mete algunos individuos nuevos aleatorios para mantener diversidad
         n_inm = int(round(p_inmigracion * tam_poblacion))
         for _ in range(n_inm):
             nueva.append(inicial_aleatoria(prep, rng))
 
-        # Rellenar con hijos
         while len(nueva) < tam_poblacion:
             ia = seleccion_torneo(fitness, rng, k=torneo_k)
             ib = seleccion_torneo(fitness, rng, k=torneo_k)
             padre_a = poblacion[ia]
             padre_b = poblacion[ib]
 
-            # Cruce
             if rng.random() < p_cruce:
                 hijo = cruce_bloque(prep, padre_a, padre_b, rng, frac=frac_cruce)
             else:
                 hijo = np.array(padre_a, dtype=int, copy=True)
 
-            # Mutación (informada)
             if rng.random() < p_mutacion:
-                hijo = mutacion_move_vecino_informada(
-                    prep, hijo, rng,
-                    modularidad_ponderada,
-                    k_candidatos=k_candidatos_mut
-                )
+                if usar_mutacion_informada:
+                    hijo = mutacion_move_vecino_informada(
+                        prep,
+                        hijo,
+                        rng,
+                        modularidad_ponderada,
+                        k_candidatos=k_candidatos_mut,
+                    )
+                else:
+                    hijo = mutacion_move_vecino_simple(prep, hijo, rng)
 
             nueva.append(hijo)
 
         poblacion = nueva
         fitness = np.array([modularidad_ponderada(prep, ind) for ind in poblacion], dtype=float)
 
-    # Mejor final
     best_idx = int(np.argmax(fitness))
     best_labels = poblacion[best_idx]
     best_Q = float(fitness[best_idx])
