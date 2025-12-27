@@ -243,6 +243,8 @@ def probar_grasp_por_k(
         plt.figure(figsize=(10, 6))
         sns.boxplot(data=df_runs, x="K_obj", y="Q")
         plt.xticks(rotation=90)
+        plt.xlabel("K objetivo")
+        plt.ylabel("Modularidad ponderada (Q)")
         plt.tight_layout()
         plt.savefig(os.path.join(guardar_dir, "boxplot_Q_por_K.png"))
         plt.close()
@@ -257,6 +259,8 @@ def probar_grasp_por_k(
             s=25,
             edgecolor="none",
         )
+        plt.xlabel("Tiempo de ejecución (s)")
+        plt.ylabel("Modularidad ponderada (Q)")
         plt.tight_layout()
         plt.savefig(os.path.join(guardar_dir, "scatter_Q_vs_tiempo.png"))
         plt.close()

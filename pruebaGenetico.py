@@ -12,9 +12,11 @@ from experimentos import cargar_y_preparar
 
 
 def probar_genetico(
-    semillas=tuple(range(50)),   # más repeticiones para gráficas ricas
-    tam_poblacion=50,            # un poco más de diversidad
-    generaciones=80,             # más largo para estabilizar
+    semillas=tuple(range(50)),
+    tam_poblacion=60,
+    generaciones=100,
+    paciencia=20,
+    tol_mejora=1e-6,
     p_cruce=0.9,
     p_mutacion=0.25,
     elitismo=2,
@@ -22,7 +24,7 @@ def probar_genetico(
     frac_cruce=0.3,
     p_inmigracion=0.02,
     k_candidatos_mut=5,
-    usar_mutacion_informada=False,  # mantener rápido por defecto
+    usar_mutacion_informada=False,
     guardar_dir="resultados/genetico",
     medir_tiempo=True,
     outlier_umbral_s=5.0,
@@ -48,6 +50,8 @@ def probar_genetico(
             modularidad_ponderada,
             tam_poblacion=tam_poblacion,
             generaciones=generaciones,
+            paciencia=paciencia,
+            tol_mejora=tol_mejora,
             p_cruce=p_cruce,
             p_mutacion=p_mutacion,
             elitismo=elitismo,
@@ -146,14 +150,42 @@ def probar_genetico(
                 indent=2,
             )
 
+        # Agrupamos semillas en bloques para mostrar varias cajas
+        df_runs["grupo_seed"] = (df_runs["seed"] // 5) * 5
+        df_runs["grupo_seed"] = df_runs["grupo_seed"].astype(str) + "-" + (
+            df_runs["grupo_seed"] + 4
+        ).astype(str)
+
         plt.figure(figsize=(8, 6))
-        sns.boxplot(data=df_runs, x="algoritmo", y="Q")
+        sns.boxplot(data=df_runs, x="grupo_seed", y="Q", color="lightgray")
+        sns.stripplot(
+            data=df_runs,
+            x="grupo_seed",
+            y="Q",
+            color="0.3",
+            alpha=0.7,
+            jitter=0.1,
+            dodge=False,
+            size=4,
+        )
+        plt.xlabel("Grupo de semillas (seed en bloques de 5)")
+        plt.ylabel("Modularidad ponderada (Q)")
         plt.tight_layout()
         plt.savefig(os.path.join(guardar_dir, "boxplot_Q.png"))
         plt.close()
 
         plt.figure(figsize=(8, 6))
-        sns.scatterplot(data=df_runs, x="tiempo", y="Q", hue="seed", palette="viridis", s=25, edgecolor="none")
+        sns.scatterplot(
+            data=df_runs,
+            x="tiempo",
+            y="Q",
+            hue="seed",
+            palette="viridis",
+            s=25,
+            edgecolor="none",
+        )
+        plt.xlabel("Tiempo de ejecución (s)")
+        plt.ylabel("Modularidad ponderada (Q)")
         plt.tight_layout()
         plt.savefig(os.path.join(guardar_dir, "scatter_Q_vs_tiempo.png"))
         plt.close()
@@ -171,8 +203,10 @@ def probar_genetico(
 if __name__ == "__main__":
     probar_genetico(
         semillas=tuple(range(50)),
-        tam_poblacion=50,
-        generaciones=80,
+        tam_poblacion=60,
+        generaciones=100,
+        paciencia=20,
+        tol_mejora=1e-6,
         p_cruce=0.9,
         p_mutacion=0.25,
         elitismo=2,

@@ -40,7 +40,7 @@ def inicial_aleatoria(prep, rng, p_nueva=0.02):
 
 
 def seleccion_torneo(fitness, rng, k=2):
-    """Devuelve índice del ganador de torneo de tamaño k (maximiza fitness)."""
+    """Devuelve índice del ganador de torneo de tamaño k"""
     n = len(fitness)
     idxs = rng.integers(0, n, size=k)
     best = idxs[0]
@@ -52,7 +52,7 @@ def seleccion_torneo(fitness, rng, k=2):
 
 def subconjunto_bfs(prep, rng, tam_objetivo):
     """
-    Genera un subconjunto S de nodos usando BFS aleatorio desde una semilla,
+    Genera un subconjunto S de nodos usando BFS aleatrio desde una semilla,
     para que el cruce copie un 'bloque' coherente.
     """
     n = prep["n"]
@@ -161,6 +161,8 @@ def genetico_comunidades(
     *,
     tam_poblacion=40,
     generaciones=60,
+    paciencia=12,
+    tol_mejora=1e-6,
     p_cruce=0.9,
     p_mutacion=0.2,
     elitismo=2,
@@ -181,6 +183,8 @@ def genetico_comunidades(
     fitness = np.array([modularidad_ponderada(prep, ind) for ind in poblacion], dtype=float)
 
     historial = []
+    mejor_global = float(fitness.max()) if len(fitness) > 0 else float("-inf")
+    generaciones_sin_mejora = 0
     for gen in range(generaciones):
         orden = np.argsort(-fitness)
         poblacion = [poblacion[i] for i in orden]
@@ -191,13 +195,16 @@ def genetico_comunidades(
         historial.append((best_Q, avg_Q))
 
         nueva = []
+        fitness_nueva = []
 
         for e in range(min(elitismo, tam_poblacion)):
             nueva.append(np.array(poblacion[e], copy=True))
+            fitness_nueva.append(float(fitness[e]))
 
         n_inm = int(round(p_inmigracion * tam_poblacion))
         for _ in range(n_inm):
             nueva.append(inicial_aleatoria(prep, rng))
+            fitness_nueva.append(None)
 
         while len(nueva) < tam_poblacion:
             ia = seleccion_torneo(fitness, rng, k=torneo_k)
@@ -223,9 +230,21 @@ def genetico_comunidades(
                     hijo = mutacion_move_vecino_simple(prep, hijo, rng)
 
             nueva.append(hijo)
+            fitness_nueva.append(None)
 
         poblacion = nueva
-        fitness = np.array([modularidad_ponderada(prep, ind) for ind in poblacion], dtype=float)
+        for i, fit in enumerate(fitness_nueva):
+            if fit is None:
+                fitness_nueva[i] = modularidad_ponderada(prep, poblacion[i])
+        fitness = np.asarray(fitness_nueva, dtype=float)
+
+        if best_Q > mejor_global + tol_mejora:
+            mejor_global = best_Q
+            generaciones_sin_mejora = 0
+        else:
+            generaciones_sin_mejora += 1
+            if generaciones_sin_mejora >= paciencia:
+                break
 
     best_idx = int(np.argmax(fitness))
     best_labels = poblacion[best_idx]

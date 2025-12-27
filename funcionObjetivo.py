@@ -14,12 +14,13 @@ def modularidad_ponderada(prep, labels):
     """
     labels = np.asarray(labels)
     s = prep["strength"]
+    M = prep.get("m")
+    if M is None:
+        M = s.sum() / 2.0
     neighbors = prep["neighbors"]
     weights = prep["weights"]
     n = prep["n"]
 
-    # M = suma de pesos de aristas (cada arista una vez)
-    M = s.sum() / 2.0
     if M == 0:
         return 0.0
 
