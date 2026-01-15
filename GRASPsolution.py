@@ -72,7 +72,6 @@ def grasp_comunidades(
         return np.zeros(n, dtype=int)
 
     # Inicialización: cada nodo es su comundad
-    # Usamos ids de comunidad = 0..n-1
     comm_de_nodo = np.arange(n, dtype=int)
 
     # Estadísticos por comunidad (solo para comunidades activas)
@@ -128,7 +127,6 @@ def grasp_comunidades(
         else:
             # Umbral alpha basado en rango [mejor, peor]
             peor_dQ = candidatos[-1][2]
-            # criterio típico GRASP: >= mejor - alpha*(mejor - peor)
             umbral = mejor_dQ - alpha * (mejor_dQ - peor_dQ)
             rcl = [c for c in candidatos if c[2] >= umbral]
             if not rcl:
@@ -138,7 +136,6 @@ def grasp_comunidades(
         a, b, dQ, wab = rcl[rng.integers(0, len(rcl))]
 
         # Aplicar merge: absorbemos b en a
-        # Para estabilidad, hacemos que "a" sea el id menor
         if b < a:
             a, b = b, a
 
@@ -153,7 +150,6 @@ def grasp_comunidades(
         comm_de_nodo[comm_de_nodo == b] = a
 
         # Actualizar W_between: combinar conexiones de b con otros en a
-        # Vamos a reconstruir entradas afectadas evitando iteraciones peligrosas sobre dict
         claves_a_eliminar = []
         actualizaciones = {}  # key -> nuevo_w
 

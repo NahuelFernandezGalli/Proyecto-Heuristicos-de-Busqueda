@@ -97,7 +97,6 @@ def cruce_bloque(prep, padre_a, padre_b, rng, frac=0.3):
 def mutacion_move_vecino_informada(prep, labels, rng, modularidad_ponderada, k_candidatos=10):
     """
     Mutación informada (best-improving): prueba mover i a comunidades de vecinos.
-    Más costosa; evaluar modularidad varias veces.
     """
     n = prep["n"]
     neighbors = prep["neighbors"]
@@ -139,7 +138,6 @@ def mutacion_move_vecino_informada(prep, labels, rng, modularidad_ponderada, k_c
 def mutacion_move_vecino_simple(prep, labels, rng):
     """
     Mutación barata: mueve un nodo al azar a la comunidad de un vecino aleatorio.
-    No evalúa fitness; útil para modos rápidos.
     """
     n = prep["n"]
     neighbors = prep["neighbors"]
@@ -175,7 +173,6 @@ def genetico_comunidades(
 ):
     """
     Algoritmo genético para CDP (maximiza modularidad ponderada).
-    Parámetros ajustados por defecto para ejecuciones más rápidas.
     """
     rng = np.random.default_rng(semilla)
 

@@ -142,7 +142,6 @@ def simulated_annealing_modularity(
         labels = rng.integers(0, k, size=n, dtype=int)
         if enforce_nonempty:
             # asegurar que todas las comunidades aparecen al menos una vez
-            # (reparación simple)
             missing = set(range(k)) - set(labels.tolist())
             missing = list(missing)
             if missing:
@@ -157,7 +156,6 @@ def simulated_annealing_modularity(
         if labels.min() < 0 or labels.max() >= k:
             raise ValueError("init_labels debe contener comunidades en 0..k-1")
 
-    # Estadísticas iniciales (ojo: aquí labels ya es 0..k-1 => comm_ids=0..k-1)
     M, s, inv, comm_ids, counts, S_c, W_in_c, Q = _init_stats(prep, labels)
 
     best_labels = inv.copy()
@@ -175,7 +173,6 @@ def simulated_annealing_modularity(
         i = rng.integers(0, n)
         c_from = inv[i]
 
-        # si no queremos vacíos: no permitimos sacar el último de su comunidad
         if enforce_nonempty and counts[c_from] <= 1:
             continue
 
